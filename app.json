@@ -1,32 +1,43 @@
 {
-  "a": {
-    "declType": "Variable",
-    "type": "IntegerType",
-    "value": "IntegerLit(5)"
-  },
-  "b": {
-    "declType": "Variable",
-    "type": "ArrayType([2, 3], IntegerType)",
-    "value": "None"
-  },
-  "c": { "declType": "Variable", "type": "IntegerType", "value": "None" },
+  "i": { "declType": "Variable", "type": "IntegerType", "value": "None" },
+  "j": { "declType": "Variable", "type": "IntegerType", "value": "None" },
   "foo": {
     "declType": "Function",
-    "type": "VoidType",
-    "inherit": "None",
+    "type": "IntegerType",
     "params": {
-      "m": {
-        "declType": "Parameter",
-        "type": "AutoType",
-        "inherit": "False",
-        "out": "False"
-      },
-      "d": {
+      "i": {
         "declType": "Parameter",
         "type": "IntegerType",
         "inherit": "False",
         "out": "False"
+      },
+      "c": {
+        "declType": "Parameter",
+        "type": "AutoType",
+        "inherit": "False",
+        "out": "False"
+      }
+    },
+    "inherit": "None",
+    "stmt": {
+      "loop": [],
+      "a": {
+        "declType": "Variable",
+        "type": "StringType",
+        "value": "StringLit(Hello)"
+      },
+      "b": {
+        "declType": "Variable",
+        "type": "StringType",
+        "value": "StringLit(Yes)"
       }
     }
+  },
+  "main": {
+    "declType": "Function",
+    "type": "VoidType",
+    "params": {},
+    "inherit": "None",
+    "stmt": { "loop": [] }
   }
 }

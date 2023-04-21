@@ -9,16 +9,12 @@ from abc import ABC
 class CheckerSuite(unittest.TestCase):
     def test_basicUndeclared_Identifier(self):
         input = """
-        i, j:integer = 5, 6;
-        foo: function integer (a:integer, b: float) {
-            for(i = 1, i < 10, i + 1) {
-                for(j = 1, j < 1000, j + 2) {
-                     break;
-                }
-            }
+        i, j: integer;
+        foo: function integer (i:integer, c: auto) {
+            arr: auto = {1,2,3};
         }
-        main: function void () {
-            return 0;
+        main: function void () inherit foo {
+            super(5,6);
         }
         """
         expect = ""

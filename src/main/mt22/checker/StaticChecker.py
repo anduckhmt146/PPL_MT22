@@ -19,29 +19,32 @@ class Symbol:
 
 class Utils:
     @staticmethod
-    def searchDecl(name, kind, o):
+    def searchDecl(name, typDecl, o):
         if o == None:
             return None
         for decl in o:
-            if str(decl) == name and o[name]["declType"] == str(kind):
+            if str(decl) == name and o[name]["declType"] == str(typDecl):
                 return o[name]
         return None
 
     @staticmethod
-    def searchInScope(name, localScope, globalScope):
-        res = Utils.searchDecl(name, "Parameter", localScope) or Utils.searchDecl(
+    def searchInLoop(name, loopScope):
+        if loopScope == []:
+            return None
+        for decl in loopScope:
+            res = Utils.searchDecl(name, "Variable", decl)
+            if res != None:
+                return res
+        return None
+
+    @staticmethod
+    def searchInScope(name, paramScope, globalScope, stmtScope):
+        res = Utils.searchInLoop(name, stmtScope["loop"]) or Utils.searchDecl(name, "Variable", stmtScope) or Utils.searchDecl(name, "Parameter", paramScope) or Utils.searchDecl(
             name, "Variable", globalScope) or Utils.searchDecl(
             name, "Function", globalScope)
         return res
 
-    @staticmethod
-    def searchMain(name, localScope, globalScope):
-        res = Utils.searchDecl(name, "Parameter", localScope) or Utils.searchDecl(
-            name, "Variable", globalScope) or Utils.searchDecl(
-            name, "Function", globalScope)
-        return res
-
-    @staticmethod
+    @ staticmethod
     def convertVal2Type(typVal):
         if str(typVal)[0:3] == "Int":
             return "IntegerType"
@@ -54,10 +57,18 @@ class Utils:
         else:
             return str(typVal)
 
-    @staticmethod
+    @ staticmethod
     def infer(name, infer_name, o):
         if type(infer_name) is Id:
             found = False
+            for decl in o[2]:
+                if decl == infer_name.name:
+                    res = Utils.searchDecl(str(decl), "Variable", o[2])
+                    if res != None:
+                        o[0][name]["type"] = res["type"]
+                        found = True
+                        break
+
             for decl in o[0]:
                 if decl == infer_name.name:
                     res = Utils.searchDecl(str(decl), "Parameter", o[0])
@@ -81,7 +92,7 @@ class Utils:
             o[0][name]["type"] = Utils.convertVal2Type(infer_name)
             return o
 
-    @staticmethod
+    @ staticmethod
     def convertArrayLit(ast, arrList):
         exprList = list(arrList.explist)
         dimens = []
@@ -113,18 +124,12 @@ class StaticChecker(Visitor):
 
     def __init__(self, ast):
         self.ast = ast
-        self.inForLoop = []
-        self.inWhileLoop = []
-        self.inDoWhileLoop = []
-        self.forLoop = []
-        self.whileLoop = []
-        self.doWhileLoop = []
+        self.inBlockStmt = 0
+        self.countLoop = 0
+        self.inheritFunc = False
 
     def check(self):
         return self.visitProgram(self.ast, [])
-
-    def outLoop(self):
-        return len(self.inForLoop) == 0 and len(self.inWhileLoop) == 0 and len(self.inDoWhileLoop) == 0
 
     # decls: List[Decl]
     def visitProgram(self, ast: Program, o):
@@ -142,7 +147,7 @@ class StaticChecker(Visitor):
         typ = ast.typ
         init = ast.init or None
         if type(init) is Id or type(init) is FuncCall:
-            initValue = Utils.searchInScope(init.name, None, o)
+            initValue = Utils.searchInScope(init.name, None, None, o)
             if initValue == None:
                 raise Undeclared(Identifier(), init.name)
             if type(init) is FuncCall and initValue["type"] == "VoidType":
@@ -150,6 +155,12 @@ class StaticChecker(Visitor):
             if initValue["type"] == "AutoType":
                 o = Utils.infer(init.name, typ, o)
                 initValue["type"] = str(typ)
+
+        if type(init) is BinExpr:
+            init = self.visit(init, o)
+
+        if type(init) is ArrayLit:
+            init = self.visit(init, o)
 
         if name in o:
             raise Redeclared(Variable(), str(name))
@@ -168,12 +179,25 @@ class StaticChecker(Visitor):
 
         if initType != "None" and initType != str(typ):
             raise TypeMismatchInVarDecl(ast)
-
-        o[name] = {
-            "declType": "Variable",
-            "type": str(typ),
-            "value": str(init)
-        }
+        if self.inBlockStmt > 0:
+            if self.countLoop > 0:
+                o[2]["loop"][self.countLoop - 1][name] = {
+                    "declType": "Variable",
+                    "type": str(typ),
+                    "value": str(init)
+                }
+            else:
+                o[2][name] = {
+                    "declType": "Variable",
+                    "type": str(typ),
+                    "value": str(init)
+                }
+        else:
+            o[name] = {
+                "declType": "Variable",
+                "type": str(typ),
+                "value": str(init)
+            }
         return o
 
     # name: str, typ: Type, out: bool = False, inherit: bool = False
@@ -220,11 +244,13 @@ class StaticChecker(Visitor):
             "params": o1,
             "inherit": str(inherit)
         }
-        o2 = [{}, {}]
+        o2 = [{}, {}, {}]
         o2[0] = o1
         o2[1] = {key: value for key, value in o.items()}
+        o2[2] = {"loop": []}
+        self.inheritFunc = inherit
         self.visit(body, o2)
-        o[name].update({"params": o2[0]})
+        o[name].update({"stmt": o2[2]})
         return o
 
     def visitIntegerType(self, ast: IntegerType, o):
@@ -256,20 +282,20 @@ class StaticChecker(Visitor):
         right = self.visit(ast.right, o)
         leftValue, rightValue = None, None
         if type(left) is Id:
-            leftValue = Utils.searchInScope(left.name, o[0], o[1])
+            leftValue = Utils.searchInScope(left.name, o[0], o[1], o[2])
             if leftValue == None:
                 raise Undeclared(Variable(), left.name)
         elif type(left) is FuncCall:
-            leftValue = Utils.searchDecl(left.name, "Function", o[1])
+            leftValue = Utils.searchInScope(left.name, o[0], o[1], o[2])
             if leftValue == None:
                 raise Undeclared(Function(), left.name)
 
         if type(right) is Id:
-            rightValue = Utils.searchInScope(right.name, o[0], o[1])
+            rightValue = Utils.searchInScope(right.name, o[0], o[1], o[2])
             if rightValue == None:
                 raise Undeclared(Variable(), right.name)
         elif type(right) is FuncCall:
-            rightValue = Utils.searchDecl(right.name, "Function", o[1])
+            rightValue = Utils.searchInScope(right.name, o[0], o[1], o[2])
             if rightValue == None:
                 raise Undeclared(Function(), right.name)
 
@@ -335,11 +361,11 @@ class StaticChecker(Visitor):
         op = ast.op
         operandVal = None
         if type(val) is Id:
-            operandVal = Utils.searchInScope(val.name, o[0], o[1])
+            operandVal = Utils.searchInScope(val.name, o[0], o[1], o[2])
             if operandVal == None:
                 raise Undeclared(Variable(), val.name)
         elif type(val) is FuncCall:
-            operandVal = Utils.searchDecl(val.name, "Function", o[1])
+            operandVal = Utils.searchInScope(val.name, o[0], o[1], o[2])
             if operandVal == None:
                 raise Undeclared(Function(), val.name)
 
@@ -367,8 +393,7 @@ class StaticChecker(Visitor):
 
     # name: str, cell: List[Expr]
     def visitArrayCell(self, ast: ArrayCell, o):
-        arrayName = Utils.searchDecl(ast.name, "Variable", o[0]) or Utils.searchDecl(
-            ast.name, "Variable", o[1])
+        arrayName = Utils.searchInScope(ast.name, o[0], o[1], o[2])
         if arrayName == None:
             raise Undeclared(Identifier(), ast.name)
         if arrayName["type"][0:3] != "Arr":
@@ -420,7 +445,7 @@ class StaticChecker(Visitor):
     def visitFuncCall(self, ast: FuncCall, o):
         name = ast.name
         args = ast.args
-        funcVal = Utils.searchDecl(name, "Function", o[1])
+        funcVal = Utils.searchInScope(name, o[0], o[1], o[2])
         if funcVal == None:
             raise Undeclared(Function(), name)
         funcRet = funcVal["type"]
@@ -432,6 +457,8 @@ class StaticChecker(Visitor):
         for i in range(lenFunc):
             funcRet = list(funcParams.values())[i]
             paramRet = Utils.convertVal2Type(args[i])
+            if funcRet["type"] == "AutoType":
+                funcRet["type"] = paramRet
             if (funcRet["type"] != paramRet):
                 raise TypeMismatchInExpression(ast)
         paraArgs = [self.visit(decl, o) for decl in args]
@@ -443,31 +470,31 @@ class StaticChecker(Visitor):
         lhs = self.visit(ast.lhs, o)
         lValue = None
         if type(rhs) is Id or type(rhs) is FuncCall:
-            rValue = Utils.searchInScope(rhs.name, o[0], o[1])
+            rValue = Utils.searchInScope(rhs.name, o[0], o[1], o[2])
             if rValue == None:
                 raise Undeclared(Identifier(), rhs.name)
             if type(rhs) is FuncCall and rValue["type"] == "VoidType":
                 raise TypeMismatchInStatement(ast)
             if rValue["type"] == "AutoType":
                 o = Utils.infer(rhs.name, lhs, o)
-                rValue = Utils.searchInScope(rhs.name, o[0], o[1])
+                rValue = Utils.searchInScope(rhs.name, o[0], o[1], o[2])
             if type(lhs) is Id:
-                lValue = Utils.searchInScope(lhs.name, o[0], o[1])
+                lValue = Utils.searchInScope(lhs.name, o[0], o[1], o[2])
             if rValue["type"] != lValue["type"]:
                 raise TypeMismatchInStatement(ast)
 
         if type(lhs) is Id:
-            lValue = Utils.searchInScope(lhs.name, o[0], o[1])
+            lValue = Utils.searchInScope(lhs.name, o[0], o[1], o[2])
             if lValue == None:
                 raise Undeclared(Identifier(), lhs.name)
             if lValue["type"] == "AutoType":
                 o = Utils.infer(lhs.name, rhs, o)
-                lValue = Utils.searchInScope(lhs.name, o[0], o[1])
+                lValue = Utils.searchInScope(lhs.name, o[0], o[1], o[2])
             if lValue["type"] == "FloatType" and str(rhs) == "IntegerType":
                 rhs = FloatType()
 
             if type(rhs) is Id or type(rhs) is FuncCall:
-                rValue = Utils.searchInScope(rhs.name, o[0], o[1])
+                rValue = Utils.searchInScope(rhs.name, o[0], o[1], o[2])
                 if rValue["type"] != lValue["type"]:
                     raise TypeMismatchInStatement(ast)
             else:
@@ -478,13 +505,20 @@ class StaticChecker(Visitor):
 
     # body: List[Stmt or VarDecl]
     def visitBlockStmt(self, ast: BlockStmt, o):
+        self.inBlockStmt += 1
+        firstStmt = False
         for decl in ast.body:
+            if self.inheritFunc == True and firstStmt == False:
+                inheritCall = self.visit(decl, o)
+                if str(inheritCall.name) == "super":
+                    print("Super")
+
             if type(decl) is VarDecl:
-                o[0] = self.visit(decl, o[0])
-            if self.forLoop == True:
-                o[0] = self.visit(decl, o[0])
+                o = self.visit(decl, o)
             else:
                 self.visit(decl, o)
+            firstStmt = True
+        self.inBlockStmt -= 1
 
     # cond: Expr, tstmt: Stmt, fstmt: Stmt or None = None
     def visitIfStmt(self, ast: IfStmt, o):
@@ -497,7 +531,7 @@ class StaticChecker(Visitor):
 
     # init: AssignStmt, cond: Expr, upd: Expr, stmt: Stmt
     def visitForStmt(self, ast: ForStmt, o):
-        self.inForLoop.append(True)
+        self.countLoop += 1
         init = self.visit(ast.init, o)
         if init != "IntegerType":
             raise TypeMismatchInStatement(ast)
@@ -507,33 +541,39 @@ class StaticChecker(Visitor):
         upd = self.visit(ast.upd, o)
         if str(upd) != "IntegerType":
             raise TypeMismatchInStatement(ast)
+        o[2]["loop"] = o[2]["loop"] + [{}]
         self.visit(ast.stmt, o)
-        self.inForLoop.pop()
+        o[2]["loop"].pop(self.countLoop - 1)
+        self.countLoop -= 1
 
     # cond: Expr, stmt: Stmt
     def visitWhileStmt(self, ast: WhileStmt, o):
-        self.inWhileLoop.append(True)
+        self.countLoop += 1
         cond = self.visit(ast.cond, o)
         if type(cond) is not BooleanType:
             raise TypeMismatchInStatement(ast)
+        o[2]["loop"] = o[2]["loop"] + [{}]
         self.visit(ast.stmt, o)
-        self.inWhileLoop.pop()
+        o[2]["loop"].pop(self.countLoop - 1)
+        self.countLoop -= 1
 
     # cond: Expr, stmt: BlockStmt
     def visitDoWhileStmt(self, ast: DoWhileStmt, o):
-        self.inDoWhileLoop.append(True)
+        self.countLoop += 1
         cond = self.visit(ast.cond, o)
         if type(cond) is not BooleanType:
             raise TypeMismatchInStatement(ast)
+        o[2]["loop"] = o[2]["loop"] + [{}]
         self.visit(ast.stmt, o)
-        self.inDoWhileLoop.pop()
+        o[2]["loop"].pop(self.countLoop - 1)
+        self.countLoop -= 1
 
     def visitBreakStmt(self, ast: BreakStmt, o):
-        if self.outLoop():
+        if self.countLoop == 0:
             raise MustInLoop(ast)
 
     def visitContinueStmt(self, ast: ContinueStmt, o):
-        if self.outLoop():
+        if self.countLoop == 0:
             raise MustInLoop(ast)
 
     # expr: Expr or None = None
@@ -541,6 +581,22 @@ class StaticChecker(Visitor):
 
     # name: str, args: List[Expr]
     def visitCallStmt(self, ast: CallStmt, o):
-        funcName = Utils.searchDecl(ast.name, "Function", o[1])
-        if funcName == None:
-            raise Undeclared(Function(), ast.name)
+        name = ast.name
+        args = ast.args
+        funcVal = Utils.searchInScope(name, o[0], o[1], o[2])
+        if funcVal == None:
+            raise Undeclared(Function(), name)
+        funcRet = funcVal["type"]
+        funcParams = funcVal["params"]
+        args = list(args)
+        lenFunc, lenCall = len(list(funcParams)), len(args)
+        if lenFunc != lenCall:
+            raise TypeMismatchInStatement(ast)
+        for i in range(lenFunc):
+            funcRet = list(funcParams.values())[i]
+            paramRet = Utils.convertVal2Type(args[i])
+            if funcRet["type"] == "AutoType":
+                funcRet["type"] = paramRet
+            if (funcRet["type"] != paramRet):
+                raise TypeMismatchInStatement(ast)
+        return CallStmt(name, args)
