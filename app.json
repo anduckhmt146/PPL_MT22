@@ -1,0 +1,32 @@
+{
+  "a": {
+    "declType": "Variable",
+    "type": "IntegerType",
+    "value": "IntegerLit(5)"
+  },
+  "b": {
+    "declType": "Variable",
+    "type": "ArrayType([2, 3], IntegerType)",
+    "value": "None"
+  },
+  "c": { "declType": "Variable", "type": "IntegerType", "value": "None" },
+  "foo": {
+    "declType": "Function",
+    "type": "VoidType",
+    "inherit": "None",
+    "params": {
+      "m": {
+        "declType": "Parameter",
+        "type": "AutoType",
+        "inherit": "False",
+        "out": "False"
+      },
+      "d": {
+        "declType": "Parameter",
+        "type": "IntegerType",
+        "inherit": "False",
+        "out": "False"
+      }
+    }
+  }
+}
